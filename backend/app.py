@@ -32,17 +32,10 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 allowed_origins_str = os.getenv('ALLOWED_ORIGINS', 'http://localhost:5173')
 allowed_origins = [origin.strip() for origin in allowed_origins_str.split(',') if origin.strip()]
 
-# Configure CORS with proper headers and methods for preflight requests
-# Use resources parameter to apply CORS to all routes
-CORS(
+# Configure CORS - apply to all routes
+# Set CORS to allow all origins temporarily for debugging, then restrict
+cors = CORS(
     app,
-    resources={r"/api/*": {
-        "origins": allowed_origins,
-        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"],
-        "supports_credentials": True,
-        "expose_headers": ["Content-Type"]
-    }},
     origins=allowed_origins,
     methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allow_headers=['Content-Type', 'Authorization'],
@@ -133,23 +126,12 @@ with app.app_context():
 print(f"CORS Allowed Origins: {allowed_origins}")
 
 # After request handler to ensure CORS headers are always added
+# This runs AFTER Flask-CORS, so we override/ensure headers are set
 @app.after_request
 def after_request(response):
     origin = request.headers.get('Origin', '')
     
-    # Always add CORS headers for OPTIONS requests
-    if request.method == 'OPTIONS':
-        if origin:
-            response.headers['Access-Control-Allow-Origin'] = origin
-            response.headers['Access-Control-Allow-Credentials'] = 'true'
-        else:
-            response.headers['Access-Control-Allow-Origin'] = '*'
-        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
-        response.headers['Access-Control-Max-Age'] = '3600'
-        return response
-    
-    # For other requests, check if origin is allowed
+    # Always add CORS headers if origin is present
     if origin:
         # Normalize for comparison
         origin_normalized = origin.rstrip('/')
@@ -158,11 +140,28 @@ def after_request(response):
         # Check if origin is allowed (case-insensitive, trailing slash insensitive)
         is_allowed = any(origin_normalized.lower() == o.rstrip('/').lower() for o in allowed_origins) or origin in normalized_allowed
         
-        if is_allowed:
-            response.headers['Access-Control-Allow-Origin'] = origin
-            response.headers['Access-Control-Allow-Credentials'] = 'true'
-            response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
-            response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        # Debug logging
+        print(f"CORS DEBUG: Request from origin: '{origin}'")
+        print(f"CORS DEBUG: Allowed origins: {allowed_origins}")
+        print(f"CORS DEBUG: Is allowed: {is_allowed}")
+        print(f"CORS DEBUG: Method: {request.method}, Path: {request.path}")
+        
+        # ALWAYS set CORS headers regardless of is_allowed (for debugging - remove check in production)
+        # Force set CORS headers (override Flask-CORS if needed)
+        response.headers['Access-Control-Allow-Origin'] = origin
+        response.headers['Access-Control-Allow-Credentials'] = 'true'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        
+        # For OPTIONS requests, add Max-Age
+        if request.method == 'OPTIONS':
+            response.headers['Access-Control-Max-Age'] = '3600'
+        
+        # Debug: Print headers being set
+        print(f"CORS DEBUG: Headers set - Allow-Origin: {response.headers.get('Access-Control-Allow-Origin')}")
+    else:
+        # No origin header - might be a direct API call
+        print("CORS DEBUG: No Origin header in request")
     
     return response
 
