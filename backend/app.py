@@ -12,6 +12,14 @@ import sys
 from dotenv import load_dotenv
 from cities import get_cities
 
+# Try to import SendGrid (optional - falls back to Flask-Mail if not available)
+try:
+    from sendgrid import SendGridAPIClient
+    from sendgrid.helpers.mail import Mail as SendGridMail
+    SENDGRID_AVAILABLE = True
+except ImportError:
+    SENDGRID_AVAILABLE = False
+
 load_dotenv()
 
 app = Flask(__name__)
@@ -46,18 +54,28 @@ CORS(
 jwt = JWTManager(app)
 db = SQLAlchemy(app)
 
-# Flask-Mail configuration
+# Email configuration - prefer SendGrid API over SMTP (works better on Railway)
+SENDGRID_API_KEY = os.getenv('SENDGRID_API_KEY')
+USE_SENDGRID = SENDGRID_AVAILABLE and SENDGRID_API_KEY
+
+# Flask-Mail configuration (fallback if SendGrid not available)
 app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER', 'smtp.gmail.com')
 app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT', 587))
 app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', 'True').lower() == 'true'
 app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
 app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
 app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_DEFAULT_SENDER', 'noreply@linklift.com')
-# Add timeout settings to prevent hanging
 app.config['MAIL_TIMEOUT'] = 10  # 10 seconds timeout
 
 mail = Mail(app)
 serializer = URLSafeTimedSerializer(app.config['SECRET_KEY'])
+
+# Log email method being used
+if USE_SENDGRID:
+    print("Email: Using SendGrid API")
+else:
+    print(f"Email: Using SMTP (SendGrid not available: SENDGRID_AVAILABLE={SENDGRID_AVAILABLE}, SENDGRID_API_KEY={'SET' if SENDGRID_API_KEY else 'NOT SET'})")
+sys.stdout.flush()
 
 # Database Models
 class User(db.Model):
@@ -562,6 +580,37 @@ def test_email():
                 'mail_port': mail_port
             }), 500
         
+        # Try SendGrid first
+        if USE_SENDGRID:
+            try:
+                print(f"TEST EMAIL: Using SendGrid to send to {test_email_address}")
+                sys.stdout.flush()
+                
+                from_email = os.getenv('SENDGRID_FROM_EMAIL', os.getenv('MAIL_DEFAULT_SENDER', 'noreply@linklift.com'))
+                
+                message = SendGridMail(
+                    from_email=from_email,
+                    to_emails=test_email_address,
+                    subject='LinkLift Test Email',
+                    html_content='<p>This is a test email from LinkLift. If you receive this, email configuration is working correctly!</p>'
+                )
+                
+                sg = SendGridAPIClient(SENDGRID_API_KEY)
+                response = sg.send(message)
+                
+                print(f"TEST EMAIL: Successfully sent via SendGrid, Status: {response.status_code}")
+                sys.stdout.flush()
+                return jsonify({
+                    'message': f'Test email sent successfully to {test_email_address} via SendGrid',
+                    'status_code': response.status_code
+                }), 200
+            except Exception as sg_error:
+                print(f"TEST EMAIL SendGrid ERROR: {str(sg_error)}")
+                print(f"TEST EMAIL SendGrid ERROR TYPE: {type(sg_error).__name__}")
+                sys.stdout.flush()
+                # Fall through to SMTP
+        
+        # Fallback to SMTP
         msg = Message(
             subject='LinkLift Test Email',
             recipients=[test_email_address],
@@ -570,20 +619,19 @@ def test_email():
         
         try:
             import socket
-            # Set socket timeout to prevent hanging
             socket.setdefaulttimeout(10)  # 10 seconds
             
             mail.send(msg)
-            print(f"TEST EMAIL: Successfully sent to {test_email_address}")
+            print(f"TEST EMAIL: Successfully sent to {test_email_address} via SMTP")
             sys.stdout.flush()
-            return jsonify({'message': f'Test email sent successfully to {test_email_address}'}), 200
+            return jsonify({'message': f'Test email sent successfully to {test_email_address} via SMTP'}), 200
         except socket.timeout:
             print(f"TEST EMAIL TIMEOUT: Connection to {mail_server}:{mail_port} timed out after 10 seconds")
             sys.stdout.flush()
             return jsonify({
                 'error': 'SMTP connection timeout',
                 'error_type': 'TimeoutError',
-                'error_message': f'Connection to {mail_server}:{mail_port} timed out. Check your SMTP settings and network connection.'
+                'error_message': f'Connection to {mail_server}:{mail_port} timed out. Railway may block SMTP. Consider using SendGrid API instead.'
             }), 500
         except Exception as e:
             print(f"TEST EMAIL ERROR: {str(e)}")
