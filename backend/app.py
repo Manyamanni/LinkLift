@@ -29,8 +29,18 @@ app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # CORS configuration - allow localhost for dev and Vercel domain for production
-allowed_origins = os.getenv('ALLOWED_ORIGINS', 'http://localhost:5173').split(',')
-CORS(app, origins=allowed_origins)
+allowed_origins_str = os.getenv('ALLOWED_ORIGINS', 'http://localhost:5173')
+allowed_origins = [origin.strip() for origin in allowed_origins_str.split(',') if origin.strip()]
+
+# Configure CORS with proper headers and methods for preflight requests
+CORS(
+    app,
+    origins=allowed_origins,
+    methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allow_headers=['Content-Type', 'Authorization'],
+    supports_credentials=True,
+    expose_headers=['Content-Type']
+)
 jwt = JWTManager(app)
 db = SQLAlchemy(app)
 
@@ -398,6 +408,27 @@ def resend_verification_by_email():
             return jsonify({'error': 'Failed to send verification email. Please try again later.'}), 500
     except Exception as e:
         return jsonify({'error': f'Server error: {str(e)}'}), 500
+
+# Health check endpoint (useful for debugging CORS)
+@app.route('/api/health', methods=['GET', 'OPTIONS'])
+def health_check():
+    """Health check endpoint to verify server and CORS are working"""
+    if request.method == 'OPTIONS':
+        return '', 200
+    try:
+        # Try a simple database query
+        db.session.execute(db.text('SELECT 1'))
+        return jsonify({
+            'status': 'healthy',
+            'database': 'connected',
+            'cors': 'configured'
+        }), 200
+    except Exception as e:
+        return jsonify({
+            'status': 'unhealthy',
+            'database': 'disconnected',
+            'error': str(e)
+        }), 500
 
 # Cities endpoint
 @app.route('/api/cities', methods=['GET'])
