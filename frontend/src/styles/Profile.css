@@ -1,0 +1,116 @@
+.profile-section {
+    background: var(--bg-white);
+    border-radius: 15px;
+    padding: 30px;
+    box-shadow: var(--shadow);
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.profile-section h2 {
+    margin-bottom: 25px;
+    color: var(--text-dark);
+    font-size: 2rem;
+}
+
+.profile-card {
+    background: var(--bg-light);
+    border-radius: 12px;
+    padding: 30px;
+    border: 2px solid var(--border-color);
+}
+
+.profile-header {
+    text-align: center;
+    margin-bottom: 30px;
+    padding-bottom: 30px;
+    border-bottom: 2px solid var(--border-color);
+}
+
+.profile-avatar {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2.5rem;
+    font-weight: 700;
+    margin: 0 auto 20px;
+}
+
+.profile-header h3 {
+    margin-bottom: 10px;
+    color: var(--text-dark);
+    font-size: 1.8rem;
+}
+
+.profile-email {
+    color: var(--text-light);
+    font-size: 1rem;
+}
+
+.profile-details {
+    display: grid;
+    gap: 20px;
+}
+
+.profile-detail-item {
+    padding: 20px;
+    background: var(--bg-white);
+    border-radius: 10px;
+    border-left: 4px solid var(--primary-color);
+}
+
+.profile-detail-label {
+    font-size: 0.85rem;
+    color: var(--text-light);
+    margin-bottom: 8px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.profile-detail-value {
+    font-size: 1.1rem;
+    color: var(--text-dark);
+    font-weight: 600;
+}
+
+.message {
+    margin-top: 20px;
+    padding: 15px;
+    border-radius: 10px;
+    text-align: center;
+}
+
+.message.info {
+    background: rgba(0, 206, 209, 0.1);
+    color: var(--primary-dark);
+    border: 1px solid var(--primary-color);
+}
+
+.message.error {
+    background: rgba(231, 76, 60, 0.1);
+    color: var(--danger-color);
+    border: 1px solid var(--danger-color);
+}
+
+@media (max-width: 768px) {
+    .profile-section {
+        padding: 20px;
+    }
+
+    .profile-card {
+        padding: 20px;
+    }
+
+    .profile-avatar {
+        width: 80px;
+        height: 80px;
+        font-size: 2rem;
+    }
+}
+
