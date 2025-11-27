@@ -252,27 +252,22 @@ def signup():
             traceback.print_exc()
             return jsonify({'error': f'Database error: {str(db_error)}'}), 500
         
-        # Send verification email (don't fail signup if email fails)
-        try:
-            email_sent = send_verification_email(user)
-        except Exception as email_error:
-            print(f"Email sending error (non-fatal): {email_error}")
-            email_sent = False
+        # Send verification email in background (don't block the response)
+        import threading
         
-        if not email_sent:
-            # If email fails, still create account but warn user
-            return jsonify({
-                'message': 'Account created, but verification email could not be sent. Please use the resend option.',
-                'user': {
-                    'id': user.id,
-                    'name': user.name,
-                    'email': user.email,
-                    'college': user.college,
-                    'email_verified': False
-                }
-            }), 201
+        def send_email_background():
+            try:
+                send_verification_email(user)
+            except Exception as e:
+                print(f"Background email sending error: {e}")
+                import traceback
+                traceback.print_exc()
         
-        # Don't create access token yet - require email verification
+        # Start email sending in background thread (non-blocking)
+        email_thread = threading.Thread(target=send_email_background, daemon=True)
+        email_thread.start()
+        
+        # Return immediately - don't wait for email to be sent
         return jsonify({
             'message': 'Account created successfully. Please check your email to verify your account.',
             'user': {
