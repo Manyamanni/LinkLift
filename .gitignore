@@ -55,6 +55,8 @@ logs/
 !frontend/index.html
 !frontend/src/**/*.js
 !frontend/src/**/*.jsx
+!frontend/vite.config.js
+
 utils.js
 auth.js
 dashboard.js
@@ -70,3 +72,8 @@ Thumbs.db
 build/
 dist/
 *.egg-info/
+
+*.js
+!frontend/vite.config.js
+!frontend/src/**/*.js
+!frontend/src/**/*.jsx

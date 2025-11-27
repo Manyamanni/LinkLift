@@ -23,3 +23,8 @@ dist-ssr
 *.sln
 *.sw?
 
+*.js
+!frontend/vite.config.js
+!frontend/src/**/*.js
+!frontend/src/**/*.jsx
+
