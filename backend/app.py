@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from itsdangerous import URLSafeTimedSerializer
 import os
 import json
+import sys
 from dotenv import load_dotenv
 from cities import get_cities
 
@@ -172,9 +173,11 @@ def send_verification_email(user):
         mail_port = int(os.getenv('MAIL_PORT', 587))
         
         print(f"Email config check - Server: {mail_server}, Port: {mail_port}, Username: {mail_username[:3] + '***' if mail_username else 'NOT SET'}")
+        sys.stdout.flush()  # Force flush to ensure logs appear
         
         if not mail_username or not mail_password:
             print("ERROR: MAIL_USERNAME or MAIL_PASSWORD not set. Email will not be sent.")
+            sys.stdout.flush()
             return False
         
         msg = Message(
@@ -202,16 +205,19 @@ def send_verification_email(user):
         )
         
         print(f"Attempting to send email to {user.email} via {mail_server}:{mail_port}")
+        sys.stdout.flush()
         
         # Try to send email with detailed error handling
         try:
             mail.send(msg)
             print(f"SUCCESS: Verification email sent to {user.email}")
+            sys.stdout.flush()
             return True
         except Exception as smtp_error:
             print(f"SMTP ERROR: Failed to send email to {user.email}")
             print(f"SMTP Error type: {type(smtp_error).__name__}")
             print(f"SMTP Error message: {str(smtp_error)}")
+            sys.stdout.flush()
             
             # Check for common SMTP errors
             error_str = str(smtp_error).lower()
@@ -221,9 +227,11 @@ def send_verification_email(user):
                 print("ERROR: SMTP Connection failed. Check MAIL_SERVER and MAIL_PORT.")
             elif '550' in error_str or '553' in error_str:
                 print("ERROR: Email rejected by server. Check recipient email address.")
+            sys.stdout.flush()
             
             import traceback
             traceback.print_exc()
+            sys.stdout.flush()
             return False
             
     except Exception as e:
@@ -289,11 +297,17 @@ def signup():
             # Create a new app context for the background thread
             with app.app_context():
                 try:
-                    send_verification_email(user)
+                    print(f"BACKGROUND THREAD: Starting email send for {user.email}")
+                    sys.stdout.flush()
+                    result = send_verification_email(user)
+                    print(f"BACKGROUND THREAD: Email send result: {result}")
+                    sys.stdout.flush()
                 except Exception as e:
-                    print(f"Background email sending error: {e}")
+                    print(f"BACKGROUND THREAD ERROR: {e}")
+                    sys.stdout.flush()
                     import traceback
                     traceback.print_exc()
+                    sys.stdout.flush()
         
         # Start email sending in background thread (non-blocking)
         email_thread = threading.Thread(target=send_email_background, daemon=True)
@@ -516,6 +530,64 @@ def health_check():
             'database': 'disconnected',
             'error': str(e)
         }), 500
+
+# Email test endpoint (for debugging email configuration)
+@app.route('/api/test-email', methods=['POST'])
+def test_email():
+    """Test email configuration - sends a test email"""
+    try:
+        data = request.get_json()
+        test_email_address = data.get('email', '').strip()
+        
+        if not test_email_address:
+            return jsonify({'error': 'Email address is required'}), 400
+        
+        mail_username = os.getenv('MAIL_USERNAME')
+        mail_password = os.getenv('MAIL_PASSWORD')
+        mail_server = os.getenv('MAIL_SERVER', 'smtp.gmail.com')
+        mail_port = int(os.getenv('MAIL_PORT', 587))
+        
+        print(f"TEST EMAIL: Attempting to send test email to {test_email_address}")
+        print(f"TEST EMAIL: Server={mail_server}, Port={mail_port}, Username={mail_username[:3] + '***' if mail_username else 'NOT SET'}")
+        sys.stdout.flush()
+        
+        if not mail_username or not mail_password:
+            return jsonify({
+                'error': 'Email configuration not set',
+                'mail_username_set': bool(mail_username),
+                'mail_password_set': bool(mail_password),
+                'mail_server': mail_server,
+                'mail_port': mail_port
+            }), 500
+        
+        msg = Message(
+            subject='LinkLift Test Email',
+            recipients=[test_email_address],
+            body='This is a test email from LinkLift. If you receive this, email configuration is working correctly!'
+        )
+        
+        try:
+            mail.send(msg)
+            print(f"TEST EMAIL: Successfully sent to {test_email_address}")
+            sys.stdout.flush()
+            return jsonify({'message': f'Test email sent successfully to {test_email_address}'}), 200
+        except Exception as e:
+            print(f"TEST EMAIL ERROR: {str(e)}")
+            print(f"TEST EMAIL ERROR TYPE: {type(e).__name__}")
+            sys.stdout.flush()
+            import traceback
+            traceback.print_exc()
+            sys.stdout.flush()
+            return jsonify({
+                'error': 'Failed to send test email',
+                'error_type': type(e).__name__,
+                'error_message': str(e)
+            }), 500
+            
+    except Exception as e:
+        print(f"TEST EMAIL ENDPOINT ERROR: {e}")
+        sys.stdout.flush()
+        return jsonify({'error': f'Server error: {str(e)}'}), 500
 
 # Cities endpoint
 @app.route('/api/cities', methods=['GET'])
