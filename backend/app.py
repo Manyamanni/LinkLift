@@ -120,22 +120,17 @@ class ChatMessage(db.Model):
 with app.app_context():
     db.create_all()
 
-# Global OPTIONS handler for CORS preflight requests
-@app.before_request
-def handle_preflight():
-    if request.method == "OPTIONS":
-        origin = request.headers.get('Origin')
-        # Only allow if origin is in allowed origins list
-        if origin in allowed_origins:
-            response = jsonify({})
-            response.headers.add("Access-Control-Allow-Origin", origin)
-            response.headers.add('Access-Control-Allow-Headers', "Content-Type,Authorization")
-            response.headers.add('Access-Control-Allow-Methods', "GET,PUT,POST,DELETE,OPTIONS")
-            response.headers.add('Access-Control-Allow-Credentials', "true")
-            return response
-        else:
-            # Origin not allowed
-            return jsonify({'error': 'Origin not allowed'}), 403
+# Debug: Print allowed origins on startup
+print(f"CORS Allowed Origins: {allowed_origins}")
+
+# After request handler to ensure CORS headers are always added
+@app.after_request
+def after_request(response):
+    origin = request.headers.get('Origin')
+    if origin and origin in allowed_origins:
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+    return response
 
 # Helper function to extract email domain
 def extract_email_domain(email):
@@ -252,20 +247,8 @@ def signup():
         db.session.rollback()
         return jsonify({'error': f'Server error: {str(e)}'}), 500
 
-@app.route('/api/auth/login', methods=['POST', 'OPTIONS'])
+@app.route('/api/auth/login', methods=['POST'])
 def login():
-    # Handle preflight OPTIONS request
-    if request.method == 'OPTIONS':
-        origin = request.headers.get('Origin')
-        if origin in allowed_origins:
-            response = jsonify({})
-            response.headers.add("Access-Control-Allow-Origin", origin)
-            response.headers.add('Access-Control-Allow-Headers', "Content-Type,Authorization")
-            response.headers.add('Access-Control-Allow-Methods', "POST,OPTIONS")
-            response.headers.add('Access-Control-Allow-Credentials', "true")
-            return response
-        else:
-            return jsonify({'error': 'Origin not allowed'}), 403
     
     data = request.get_json()
     email = data.get('email', '').strip()
@@ -448,10 +431,14 @@ def health_check():
     try:
         # Try a simple database query
         db.session.execute(db.text('SELECT 1'))
+        origin = request.headers.get('Origin', 'Not provided')
         return jsonify({
             'status': 'healthy',
             'database': 'connected',
-            'cors': 'configured'
+            'cors': 'configured',
+            'allowed_origins': allowed_origins,
+            'request_origin': origin,
+            'origin_allowed': origin in allowed_origins if origin != 'Not provided' else None
         }), 200
     except Exception as e:
         return jsonify({
