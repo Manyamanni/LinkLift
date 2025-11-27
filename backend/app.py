@@ -120,6 +120,23 @@ class ChatMessage(db.Model):
 with app.app_context():
     db.create_all()
 
+# Global OPTIONS handler for CORS preflight requests
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        origin = request.headers.get('Origin')
+        # Only allow if origin is in allowed origins list
+        if origin in allowed_origins:
+            response = jsonify({})
+            response.headers.add("Access-Control-Allow-Origin", origin)
+            response.headers.add('Access-Control-Allow-Headers', "Content-Type,Authorization")
+            response.headers.add('Access-Control-Allow-Methods', "GET,PUT,POST,DELETE,OPTIONS")
+            response.headers.add('Access-Control-Allow-Credentials', "true")
+            return response
+        else:
+            # Origin not allowed
+            return jsonify({'error': 'Origin not allowed'}), 403
+
 # Helper function to extract email domain
 def extract_email_domain(email):
     if not email or '@' not in email:
@@ -235,8 +252,21 @@ def signup():
         db.session.rollback()
         return jsonify({'error': f'Server error: {str(e)}'}), 500
 
-@app.route('/api/auth/login', methods=['POST'])
+@app.route('/api/auth/login', methods=['POST', 'OPTIONS'])
 def login():
+    # Handle preflight OPTIONS request
+    if request.method == 'OPTIONS':
+        origin = request.headers.get('Origin')
+        if origin in allowed_origins:
+            response = jsonify({})
+            response.headers.add("Access-Control-Allow-Origin", origin)
+            response.headers.add('Access-Control-Allow-Headers', "Content-Type,Authorization")
+            response.headers.add('Access-Control-Allow-Methods', "POST,OPTIONS")
+            response.headers.add('Access-Control-Allow-Credentials', "true")
+            return response
+        else:
+            return jsonify({'error': 'Origin not allowed'}), 403
+    
     data = request.get_json()
     email = data.get('email', '').strip()
     password = data.get('password', '')
