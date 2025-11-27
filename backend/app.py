@@ -168,9 +168,13 @@ def send_verification_email(user):
         # Check if email configuration is set
         mail_username = os.getenv('MAIL_USERNAME')
         mail_password = os.getenv('MAIL_PASSWORD')
+        mail_server = os.getenv('MAIL_SERVER', 'smtp.gmail.com')
+        mail_port = int(os.getenv('MAIL_PORT', 587))
+        
+        print(f"Email config check - Server: {mail_server}, Port: {mail_port}, Username: {mail_username[:3] + '***' if mail_username else 'NOT SET'}")
         
         if not mail_username or not mail_password:
-            print("WARNING: MAIL_USERNAME or MAIL_PASSWORD not set. Email will not be sent.")
+            print("ERROR: MAIL_USERNAME or MAIL_PASSWORD not set. Email will not be sent.")
             return False
         
         msg = Message(
@@ -196,15 +200,41 @@ def send_verification_email(user):
             </div>
             """
         )
-        mail.send(msg)
-        print(f"Verification email sent successfully to {user.email}")
-        return True
+        
+        print(f"Attempting to send email to {user.email} via {mail_server}:{mail_port}")
+        
+        # Try to send email with detailed error handling
+        try:
+            mail.send(msg)
+            print(f"SUCCESS: Verification email sent to {user.email}")
+            return True
+        except Exception as smtp_error:
+            print(f"SMTP ERROR: Failed to send email to {user.email}")
+            print(f"SMTP Error type: {type(smtp_error).__name__}")
+            print(f"SMTP Error message: {str(smtp_error)}")
+            
+            # Check for common SMTP errors
+            error_str = str(smtp_error).lower()
+            if 'authentication' in error_str or '535' in error_str:
+                print("ERROR: SMTP Authentication failed. Check MAIL_USERNAME and MAIL_PASSWORD.")
+            elif 'connection' in error_str or 'timeout' in error_str:
+                print("ERROR: SMTP Connection failed. Check MAIL_SERVER and MAIL_PORT.")
+            elif '550' in error_str or '553' in error_str:
+                print("ERROR: Email rejected by server. Check recipient email address.")
+            
+            import traceback
+            traceback.print_exc()
+            return False
+            
     except Exception as e:
-        print(f"Failed to send verification email to {user.email}: {str(e)}")
+        print(f"CRITICAL ERROR in send_verification_email: {str(e)}")
         print(f"Error type: {type(e).__name__}")
         import traceback
         traceback.print_exc()
-        db.session.rollback()
+        try:
+            db.session.rollback()
+        except:
+            pass
         return False
 
 # Authentication Routes
@@ -256,12 +286,14 @@ def signup():
         import threading
         
         def send_email_background():
-            try:
-                send_verification_email(user)
-            except Exception as e:
-                print(f"Background email sending error: {e}")
-                import traceback
-                traceback.print_exc()
+            # Create a new app context for the background thread
+            with app.app_context():
+                try:
+                    send_verification_email(user)
+                except Exception as e:
+                    print(f"Background email sending error: {e}")
+                    import traceback
+                    traceback.print_exc()
         
         # Start email sending in background thread (non-blocking)
         email_thread = threading.Thread(target=send_email_background, daemon=True)
