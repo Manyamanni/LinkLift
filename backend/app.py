@@ -209,10 +209,19 @@ def send_verification_email(user):
         # Try SendGrid first (works on Railway)
         if USE_SENDGRID:
             try:
-                print(f"Using SendGrid to send verification email to {user.email}")
-                sys.stdout.flush()
-                
                 from_email = os.getenv('SENDGRID_FROM_EMAIL', os.getenv('MAIL_DEFAULT_SENDER', 'noreply@linklift.com'))
+                
+                # Validate configuration
+                if not from_email:
+                    print("ERROR: SENDGRID_FROM_EMAIL is not set")
+                    sys.stdout.flush()
+                    return False
+                
+                print(f"Using SendGrid to send verification email to {user.email}")
+                print(f"From email: {from_email}")
+                print(f"API Key present: {bool(SENDGRID_API_KEY)}")
+                print(f"API Key length: {len(SENDGRID_API_KEY) if SENDGRID_API_KEY else 0}")
+                sys.stdout.flush()
                 
                 message = SendGridMail(
                     from_email=from_email,
@@ -224,13 +233,37 @@ def send_verification_email(user):
                 sg = SendGridAPIClient(SENDGRID_API_KEY)
                 response = sg.send(message)
                 
-                print(f"SUCCESS: Verification email sent via SendGrid to {user.email}, Status: {response.status_code}")
+                # Check response status code
+                status_code = response.status_code
+                print(f"SendGrid Response Status Code: {status_code}")
+                print(f"SendGrid Response Headers: {dict(response.headers) if hasattr(response, 'headers') else 'N/A'}")
+                print(f"SendGrid Response Body: {response.body if hasattr(response, 'body') else 'N/A'}")
                 sys.stdout.flush()
-                return True
+                
+                # SendGrid returns 202 for accepted emails
+                if status_code in [200, 202]:
+                    print(f"SUCCESS: Verification email accepted by SendGrid to {user.email}, Status: {status_code}")
+                    sys.stdout.flush()
+                    return True
+                else:
+                    print(f"ERROR: SendGrid returned non-success status {status_code}")
+                    print(f"Response body: {response.body if hasattr(response, 'body') else 'N/A'}")
+                    sys.stdout.flush()
+                    return False
+                    
             except Exception as sg_error:
-                print(f"SendGrid ERROR: Failed to send email to {user.email}")
-                print(f"SendGrid Error type: {type(sg_error).__name__}")
-                print(f"SendGrid Error message: {str(sg_error)}")
+                print(f"SendGrid EXCEPTION: Failed to send email to {user.email}")
+                print(f"Error type: {type(sg_error).__name__}")
+                print(f"Error message: {str(sg_error)}")
+                
+                # Try to get more details from SendGrid exceptions
+                if hasattr(sg_error, 'body'):
+                    print(f"SendGrid error body: {sg_error.body}")
+                if hasattr(sg_error, 'status_code'):
+                    print(f"SendGrid error status: {sg_error.status_code}")
+                if hasattr(sg_error, 'headers'):
+                    print(f"SendGrid error headers: {sg_error.headers}")
+                
                 sys.stdout.flush()
                 import traceback
                 traceback.print_exc()
@@ -606,10 +639,19 @@ def test_email():
         # Try SendGrid first (recommended for Railway)
         if USE_SENDGRID:
             try:
-                print(f"TEST EMAIL: Using SendGrid to send to {test_email_address}")
-                sys.stdout.flush()
-                
                 from_email = os.getenv('SENDGRID_FROM_EMAIL', os.getenv('MAIL_DEFAULT_SENDER', 'noreply@linklift.com'))
+                
+                if not from_email:
+                    return jsonify({
+                        'error': 'SENDGRID_FROM_EMAIL is not set',
+                        'suggestion': 'Set SENDGRID_FROM_EMAIL environment variable to your verified sender email'
+                    }), 500
+                
+                print(f"TEST EMAIL: Using SendGrid to send to {test_email_address}")
+                print(f"From email: {from_email}")
+                print(f"API Key present: {bool(SENDGRID_API_KEY)}")
+                print(f"API Key starts with: {SENDGRID_API_KEY[:10] + '...' if SENDGRID_API_KEY and len(SENDGRID_API_KEY) > 10 else 'N/A'}")
+                sys.stdout.flush()
                 
                 message = SendGridMail(
                     from_email=from_email,
@@ -621,25 +663,55 @@ def test_email():
                 sg = SendGridAPIClient(SENDGRID_API_KEY)
                 response = sg.send(message)
                 
-                print(f"TEST EMAIL: Successfully sent via SendGrid, Status: {response.status_code}")
+                status_code = response.status_code
+                print(f"TEST EMAIL SendGrid Response Status: {status_code}")
+                print(f"TEST EMAIL SendGrid Response Headers: {dict(response.headers) if hasattr(response, 'headers') else 'N/A'}")
+                print(f"TEST EMAIL SendGrid Response Body: {response.body if hasattr(response, 'body') else 'N/A'}")
                 sys.stdout.flush()
-                return jsonify({
-                    'message': f'Test email sent successfully to {test_email_address} via SendGrid',
-                    'status_code': response.status_code
-                }), 200
+                
+                # SendGrid returns 202 for accepted emails
+                if status_code in [200, 202]:
+                    return jsonify({
+                        'message': f'Test email accepted by SendGrid to {test_email_address}',
+                        'status_code': status_code,
+                        'note': 'Check your inbox and spam folder. If not received, verify your sender email is verified in SendGrid dashboard.'
+                    }), 200
+                else:
+                    return jsonify({
+                        'error': f'SendGrid returned non-success status {status_code}',
+                        'status_code': status_code,
+                        'response_body': str(response.body) if hasattr(response, 'body') else 'N/A',
+                        'suggestion': 'Check SendGrid dashboard for errors. Verify your sender email is verified.'
+                    }), 500
+                    
             except Exception as sg_error:
-                print(f"TEST EMAIL SendGrid ERROR: {str(sg_error)}")
+                print(f"TEST EMAIL SendGrid EXCEPTION: {str(sg_error)}")
                 print(f"TEST EMAIL SendGrid ERROR TYPE: {type(sg_error).__name__}")
+                
+                error_details = {
+                    'error': 'Failed to send test email via SendGrid',
+                    'error_type': type(sg_error).__name__,
+                    'error_message': str(sg_error)
+                }
+                
+                # Try to get more details from SendGrid exceptions
+                if hasattr(sg_error, 'body'):
+                    error_details['sendgrid_error_body'] = str(sg_error.body)
+                    print(f"SendGrid error body: {sg_error.body}")
+                if hasattr(sg_error, 'status_code'):
+                    error_details['sendgrid_error_status'] = sg_error.status_code
+                    print(f"SendGrid error status: {sg_error.status_code}")
+                if hasattr(sg_error, 'headers'):
+                    error_details['sendgrid_error_headers'] = str(sg_error.headers)
+                    print(f"SendGrid error headers: {sg_error.headers}")
+                
+                error_details['suggestion'] = 'Check your SENDGRID_API_KEY and SENDGRID_FROM_EMAIL. Verify the sender email in SendGrid dashboard.'
+                
                 sys.stdout.flush()
                 import traceback
                 traceback.print_exc()
                 sys.stdout.flush()
-                return jsonify({
-                    'error': 'Failed to send test email via SendGrid',
-                    'error_type': type(sg_error).__name__,
-                    'error_message': str(sg_error),
-                    'suggestion': 'Check your SENDGRID_API_KEY and SENDGRID_FROM_EMAIL environment variables'
-                }), 500
+                return jsonify(error_details), 500
         
         # Fallback to SMTP (may not work on Railway)
         print(f"TEST EMAIL: SendGrid not available, falling back to SMTP")
