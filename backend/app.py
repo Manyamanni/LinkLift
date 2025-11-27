@@ -33,13 +33,22 @@ allowed_origins_str = os.getenv('ALLOWED_ORIGINS', 'http://localhost:5173')
 allowed_origins = [origin.strip() for origin in allowed_origins_str.split(',') if origin.strip()]
 
 # Configure CORS with proper headers and methods for preflight requests
+# Use resources parameter to apply CORS to all routes
 CORS(
     app,
+    resources={r"/api/*": {
+        "origins": allowed_origins,
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"],
+        "supports_credentials": True,
+        "expose_headers": ["Content-Type"]
+    }},
     origins=allowed_origins,
     methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allow_headers=['Content-Type', 'Authorization'],
     supports_credentials=True,
-    expose_headers=['Content-Type']
+    expose_headers=['Content-Type'],
+    automatic_options=True
 )
 jwt = JWTManager(app)
 db = SQLAlchemy(app)
@@ -126,10 +135,35 @@ print(f"CORS Allowed Origins: {allowed_origins}")
 # After request handler to ensure CORS headers are always added
 @app.after_request
 def after_request(response):
-    origin = request.headers.get('Origin')
-    if origin and origin in allowed_origins:
-        response.headers.add('Access-Control-Allow-Origin', origin)
-        response.headers.add('Access-Control-Allow-Credentials', 'true')
+    origin = request.headers.get('Origin', '')
+    
+    # Always add CORS headers for OPTIONS requests
+    if request.method == 'OPTIONS':
+        if origin:
+            response.headers['Access-Control-Allow-Origin'] = origin
+            response.headers['Access-Control-Allow-Credentials'] = 'true'
+        else:
+            response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        response.headers['Access-Control-Max-Age'] = '3600'
+        return response
+    
+    # For other requests, check if origin is allowed
+    if origin:
+        # Normalize for comparison
+        origin_normalized = origin.rstrip('/')
+        normalized_allowed = [o.rstrip('/') for o in allowed_origins]
+        
+        # Check if origin is allowed (case-insensitive, trailing slash insensitive)
+        is_allowed = any(origin_normalized.lower() == o.rstrip('/').lower() for o in allowed_origins) or origin in normalized_allowed
+        
+        if is_allowed:
+            response.headers['Access-Control-Allow-Origin'] = origin
+            response.headers['Access-Control-Allow-Credentials'] = 'true'
+            response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+            response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+    
     return response
 
 # Helper function to extract email domain
