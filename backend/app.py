@@ -53,6 +53,8 @@ app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', 'True').lower() == 'true'
 app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
 app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
 app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_DEFAULT_SENDER', 'noreply@linklift.com')
+# Add timeout settings to prevent hanging
+app.config['MAIL_TIMEOUT'] = 10  # 10 seconds timeout
 
 mail = Mail(app)
 serializer = URLSafeTimedSerializer(app.config['SECRET_KEY'])
@@ -567,10 +569,22 @@ def test_email():
         )
         
         try:
+            import socket
+            # Set socket timeout to prevent hanging
+            socket.setdefaulttimeout(10)  # 10 seconds
+            
             mail.send(msg)
             print(f"TEST EMAIL: Successfully sent to {test_email_address}")
             sys.stdout.flush()
             return jsonify({'message': f'Test email sent successfully to {test_email_address}'}), 200
+        except socket.timeout:
+            print(f"TEST EMAIL TIMEOUT: Connection to {mail_server}:{mail_port} timed out after 10 seconds")
+            sys.stdout.flush()
+            return jsonify({
+                'error': 'SMTP connection timeout',
+                'error_type': 'TimeoutError',
+                'error_message': f'Connection to {mail_server}:{mail_port} timed out. Check your SMTP settings and network connection.'
+            }), 500
         except Exception as e:
             print(f"TEST EMAIL ERROR: {str(e)}")
             print(f"TEST EMAIL ERROR TYPE: {type(e).__name__}")
