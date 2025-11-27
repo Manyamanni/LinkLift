@@ -128,19 +128,23 @@ print(f"CORS Allowed Origins: {allowed_origins}")
 # This runs AFTER Flask-CORS, so we override/ensure headers are set
 @app.after_request
 def after_request(response):
-    origin = request.headers.get('Origin', '')
-    
-    # Always add CORS headers if origin is present
-    if origin:
-        # Force set CORS headers (override Flask-CORS if needed)
-        response.headers['Access-Control-Allow-Origin'] = origin
-        response.headers['Access-Control-Allow-Credentials'] = 'true'
-        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+    try:
+        origin = request.headers.get('Origin', '')
         
-        # For OPTIONS requests, add Max-Age
-        if request.method == 'OPTIONS':
-            response.headers['Access-Control-Max-Age'] = '3600'
+        # Always add CORS headers if origin is present
+        if origin:
+            # Force set CORS headers (override Flask-CORS if needed)
+            response.headers['Access-Control-Allow-Origin'] = origin
+            response.headers['Access-Control-Allow-Credentials'] = 'true'
+            response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+            response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+            
+            # For OPTIONS requests, add Max-Age
+            if request.method == 'OPTIONS':
+                response.headers['Access-Control-Max-Age'] = '3600'
+    except Exception as e:
+        # Don't let CORS handler crash the app
+        print(f"Error in after_request CORS handler: {e}")
     
     return response
 
@@ -223,30 +227,42 @@ def signup():
         data = {k: v.strip() if isinstance(v, str) else v for k, v in data.items()}
         
         # Check if user already exists
-        if User.query.filter_by(email=data['email']).first():
+        existing_user = User.query.filter_by(email=data['email']).first()
+        if existing_user:
             return jsonify({'error': 'Email already registered'}), 400
         
         # Create new user
-        user = User(
-            name=data['name'],
-            year=data['year'],
-            email=data['email'],
-            phone=None,  # Phone is optional
-            college=data['college'],
-            password_hash=generate_password_hash(data['password']),
-            email_verified=False
-        )
+        try:
+            user = User(
+                name=data['name'],
+                year=data['year'],
+                email=data['email'],
+                phone=None,  # Phone is optional
+                college=data['college'],
+                password_hash=generate_password_hash(data['password']),
+                email_verified=False
+            )
+            
+            db.session.add(user)
+            db.session.commit()
+        except Exception as db_error:
+            db.session.rollback()
+            print(f"Database error in signup: {db_error}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({'error': f'Database error: {str(db_error)}'}), 500
         
-        db.session.add(user)
-        db.session.commit()
-        
-        # Send verification email
-        email_sent = send_verification_email(user)
+        # Send verification email (don't fail signup if email fails)
+        try:
+            email_sent = send_verification_email(user)
+        except Exception as email_error:
+            print(f"Email sending error (non-fatal): {email_error}")
+            email_sent = False
         
         if not email_sent:
             # If email fails, still create account but warn user
             return jsonify({
-                'message': 'Account created, but verification email could not be sent. Please contact support.',
+                'message': 'Account created, but verification email could not be sent. Please use the resend option.',
                 'user': {
                     'id': user.id,
                     'name': user.name,
@@ -269,6 +285,9 @@ def signup():
         }), 201
     except Exception as e:
         db.session.rollback()
+        print(f"Signup endpoint error: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': f'Server error: {str(e)}'}), 500
 
 @app.route('/api/auth/login', methods=['POST'])
