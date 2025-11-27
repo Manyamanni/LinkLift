@@ -75,8 +75,18 @@ pip install -r requirements.txt
 ```bash
 SECRET_KEY=your-secret-key-here
 JWT_SECRET_KEY=your-jwt-secret-key-here
-DATABASE_URL=sqlite:///linklift.db
+DATABASE_URL=postgresql://user:password@host/database?sslmode=require
 ```
+
+   **For Neon PostgreSQL:**
+   - Sign up at https://neon.tech
+   - Create a new project
+   - Copy the connection string from the Neon dashboard
+   - It will look like: `postgresql://user:password@ep-xxx.region.aws.neon.tech/dbname?sslmode=require`
+   - Paste it as your `DATABASE_URL` in `.env`
+   
+   **For Local Development (SQLite):**
+   - Leave `DATABASE_URL` empty or use `sqlite:///linklift.db`
 
 5. Run the Flask server:
 ```bash
@@ -174,8 +184,9 @@ The frontend will run on `http://localhost:5173`
 ## 🚀 Deployment
 
 ### Backend
-- Can be deployed to Heroku, Railway, or any Python hosting service
-- Update `DATABASE_URL` for production database (PostgreSQL recommended)
+- Can be deployed to Heroku, Railway, Render, or any Python hosting service
+- **Database:** Uses Neon PostgreSQL (serverless Postgres) - sign up at https://neon.tech
+- Update `DATABASE_URL` with your Neon connection string
 - Set secure `SECRET_KEY` and `JWT_SECRET_KEY`
 
 ### Frontend

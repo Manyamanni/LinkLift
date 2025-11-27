@@ -22,7 +22,7 @@ function PrivateRoute({ children }) {
 function App() {
   return (
     <AuthProvider>
-      <Router>
+      <Router future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/verify-email" element={<VerifyEmail />} />
