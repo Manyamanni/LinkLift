@@ -177,7 +177,7 @@ def extract_email_domain(email):
 
 # Helper function to send verification email
 def send_verification_email(user):
-    """Send verification email to user"""
+    """Send verification email to user - uses SendGrid API if available, otherwise SMTP"""
     try:
         token = serializer.dumps(user.email, salt='email-verification')
         user.verification_token = token
@@ -186,14 +186,65 @@ def send_verification_email(user):
         frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:5173')
         verification_url = f"{frontend_url}/verify-email?token={token}"
         
-        # Check if email configuration is set
+        email_html = f"""
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #2563eb;">Welcome to LinkLift!</h2>
+            <p>Hi {user.name},</p>
+            <p>Thank you for signing up for LinkLift - Smart Campus Ride Sharing.</p>
+            <p>Please verify your email address by clicking the button below:</p>
+            <div style="text-align: center; margin: 30px 0;">
+                <a href="{verification_url}" 
+                   style="background-color: #2563eb; color: white; padding: 12px 30px; 
+                          text-decoration: none; border-radius: 5px; display: inline-block;">
+                    Verify Email Address
+                </a>
+            </div>
+            <p>Or copy and paste this link into your browser:</p>
+            <p style="word-break: break-all; color: #666;">{verification_url}</p>
+            <p style="color: #999; font-size: 12px;">This link will expire in 24 hours.</p>
+            <p style="color: #999; font-size: 12px;">If you didn't create this account, please ignore this email.</p>
+        </div>
+        """
+        
+        # Try SendGrid first (works on Railway)
+        if USE_SENDGRID:
+            try:
+                print(f"Using SendGrid to send verification email to {user.email}")
+                sys.stdout.flush()
+                
+                from_email = os.getenv('SENDGRID_FROM_EMAIL', os.getenv('MAIL_DEFAULT_SENDER', 'noreply@linklift.com'))
+                
+                message = SendGridMail(
+                    from_email=from_email,
+                    to_emails=user.email,
+                    subject='Verify Your LinkLift Account',
+                    html_content=email_html
+                )
+                
+                sg = SendGridAPIClient(SENDGRID_API_KEY)
+                response = sg.send(message)
+                
+                print(f"SUCCESS: Verification email sent via SendGrid to {user.email}, Status: {response.status_code}")
+                sys.stdout.flush()
+                return True
+            except Exception as sg_error:
+                print(f"SendGrid ERROR: Failed to send email to {user.email}")
+                print(f"SendGrid Error type: {type(sg_error).__name__}")
+                print(f"SendGrid Error message: {str(sg_error)}")
+                sys.stdout.flush()
+                import traceback
+                traceback.print_exc()
+                sys.stdout.flush()
+                # Fall through to SMTP if SendGrid fails
+        
+        # Fallback to SMTP (may not work on Railway)
+        print(f"Falling back to SMTP for {user.email}")
+        sys.stdout.flush()
+        
         mail_username = os.getenv('MAIL_USERNAME')
         mail_password = os.getenv('MAIL_PASSWORD')
         mail_server = os.getenv('MAIL_SERVER', 'smtp.gmail.com')
         mail_port = int(os.getenv('MAIL_PORT', 587))
-        
-        print(f"Email config check - Server: {mail_server}, Port: {mail_port}, Username: {mail_username[:3] + '***' if mail_username else 'NOT SET'}")
-        sys.stdout.flush()  # Force flush to ensure logs appear
         
         if not mail_username or not mail_password:
             print("ERROR: MAIL_USERNAME or MAIL_PASSWORD not set. Email will not be sent.")
@@ -203,36 +254,25 @@ def send_verification_email(user):
         msg = Message(
             subject='Verify Your LinkLift Account',
             recipients=[user.email],
-            html=f"""
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <h2 style="color: #2563eb;">Welcome to LinkLift!</h2>
-                <p>Hi {user.name},</p>
-                <p>Thank you for signing up for LinkLift - Smart Campus Ride Sharing.</p>
-                <p>Please verify your email address by clicking the button below:</p>
-                <div style="text-align: center; margin: 30px 0;">
-                    <a href="{verification_url}" 
-                       style="background-color: #2563eb; color: white; padding: 12px 30px; 
-                              text-decoration: none; border-radius: 5px; display: inline-block;">
-                        Verify Email Address
-                    </a>
-                </div>
-                <p>Or copy and paste this link into your browser:</p>
-                <p style="word-break: break-all; color: #666;">{verification_url}</p>
-                <p style="color: #999; font-size: 12px;">This link will expire in 24 hours.</p>
-                <p style="color: #999; font-size: 12px;">If you didn't create this account, please ignore this email.</p>
-            </div>
-            """
+            html=email_html
         )
         
         print(f"Attempting to send email to {user.email} via {mail_server}:{mail_port}")
         sys.stdout.flush()
         
-        # Try to send email with detailed error handling
+        # Try to send email with detailed error handling and timeout
         try:
+            import socket
+            socket.setdefaulttimeout(10)  # 10 seconds
+            
             mail.send(msg)
-            print(f"SUCCESS: Verification email sent to {user.email}")
+            print(f"SUCCESS: Verification email sent to {user.email} via SMTP")
             sys.stdout.flush()
             return True
+        except socket.timeout:
+            print(f"SMTP TIMEOUT: Connection to {mail_server}:{mail_port} timed out after 10 seconds")
+            sys.stdout.flush()
+            return False
         except Exception as smtp_error:
             print(f"SMTP ERROR: Failed to send email to {user.email}")
             print(f"SMTP Error type: {type(smtp_error).__name__}")
@@ -243,8 +283,8 @@ def send_verification_email(user):
             error_str = str(smtp_error).lower()
             if 'authentication' in error_str or '535' in error_str:
                 print("ERROR: SMTP Authentication failed. Check MAIL_USERNAME and MAIL_PASSWORD.")
-            elif 'connection' in error_str or 'timeout' in error_str:
-                print("ERROR: SMTP Connection failed. Check MAIL_SERVER and MAIL_PORT.")
+            elif 'connection' in error_str or 'timeout' in error_str or 'unreachable' in error_str:
+                print("ERROR: SMTP Connection failed. Railway may block SMTP. Use SendGrid API instead.")
             elif '550' in error_str or '553' in error_str:
                 print("ERROR: Email rejected by server. Check recipient email address.")
             sys.stdout.flush()
@@ -259,6 +299,7 @@ def send_verification_email(user):
         print(f"Error type: {type(e).__name__}")
         import traceback
         traceback.print_exc()
+        sys.stdout.flush()
         try:
             db.session.rollback()
         except:
@@ -562,25 +603,7 @@ def test_email():
         if not test_email_address:
             return jsonify({'error': 'Email address is required'}), 400
         
-        mail_username = os.getenv('MAIL_USERNAME')
-        mail_password = os.getenv('MAIL_PASSWORD')
-        mail_server = os.getenv('MAIL_SERVER', 'smtp.gmail.com')
-        mail_port = int(os.getenv('MAIL_PORT', 587))
-        
-        print(f"TEST EMAIL: Attempting to send test email to {test_email_address}")
-        print(f"TEST EMAIL: Server={mail_server}, Port={mail_port}, Username={mail_username[:3] + '***' if mail_username else 'NOT SET'}")
-        sys.stdout.flush()
-        
-        if not mail_username or not mail_password:
-            return jsonify({
-                'error': 'Email configuration not set',
-                'mail_username_set': bool(mail_username),
-                'mail_password_set': bool(mail_password),
-                'mail_server': mail_server,
-                'mail_port': mail_port
-            }), 500
-        
-        # Try SendGrid first
+        # Try SendGrid first (recommended for Railway)
         if USE_SENDGRID:
             try:
                 print(f"TEST EMAIL: Using SendGrid to send to {test_email_address}")
@@ -608,9 +631,35 @@ def test_email():
                 print(f"TEST EMAIL SendGrid ERROR: {str(sg_error)}")
                 print(f"TEST EMAIL SendGrid ERROR TYPE: {type(sg_error).__name__}")
                 sys.stdout.flush()
-                # Fall through to SMTP
+                import traceback
+                traceback.print_exc()
+                sys.stdout.flush()
+                return jsonify({
+                    'error': 'Failed to send test email via SendGrid',
+                    'error_type': type(sg_error).__name__,
+                    'error_message': str(sg_error),
+                    'suggestion': 'Check your SENDGRID_API_KEY and SENDGRID_FROM_EMAIL environment variables'
+                }), 500
         
-        # Fallback to SMTP
+        # Fallback to SMTP (may not work on Railway)
+        print(f"TEST EMAIL: SendGrid not available, falling back to SMTP")
+        sys.stdout.flush()
+        
+        mail_username = os.getenv('MAIL_USERNAME')
+        mail_password = os.getenv('MAIL_PASSWORD')
+        mail_server = os.getenv('MAIL_SERVER', 'smtp.gmail.com')
+        mail_port = int(os.getenv('MAIL_PORT', 587))
+        
+        if not mail_username or not mail_password:
+            return jsonify({
+                'error': 'Email configuration not set',
+                'mail_username_set': bool(mail_username),
+                'mail_password_set': bool(mail_password),
+                'mail_server': mail_server,
+                'mail_port': mail_port,
+                'suggestion': 'Set SENDGRID_API_KEY and SENDGRID_FROM_EMAIL for Railway, or configure SMTP credentials'
+            }), 500
+        
         msg = Message(
             subject='LinkLift Test Email',
             recipients=[test_email_address],
@@ -631,7 +680,8 @@ def test_email():
             return jsonify({
                 'error': 'SMTP connection timeout',
                 'error_type': 'TimeoutError',
-                'error_message': f'Connection to {mail_server}:{mail_port} timed out. Railway may block SMTP. Consider using SendGrid API instead.'
+                'error_message': f'Connection to {mail_server}:{mail_port} timed out. Railway blocks SMTP.',
+                'suggestion': 'Use SendGrid API instead. Set SENDGRID_API_KEY and SENDGRID_FROM_EMAIL environment variables.'
             }), 500
         except Exception as e:
             print(f"TEST EMAIL ERROR: {str(e)}")
@@ -641,9 +691,10 @@ def test_email():
             traceback.print_exc()
             sys.stdout.flush()
             return jsonify({
-                'error': 'Failed to send test email',
+                'error': 'Failed to send test email via SMTP',
                 'error_type': type(e).__name__,
-                'error_message': str(e)
+                'error_message': str(e),
+                'suggestion': 'Railway may block SMTP. Use SendGrid API instead by setting SENDGRID_API_KEY and SENDGRID_FROM_EMAIL.'
             }), 500
             
     except Exception as e:
