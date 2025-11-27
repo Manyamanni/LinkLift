@@ -15,6 +15,7 @@ function Login() {
     loginPassword: ''
   })
   const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
   const { login, signup } = useAuth()
   const navigate = useNavigate()
 
@@ -54,24 +55,29 @@ function Login() {
   const handleSignup = async (e) => {
     e.preventDefault()
     setError('')
+    setLoading(true)
     
     if (!formData.email.includes('@')) {
       setError('Please enter a valid institutional email address.')
+      setLoading(false)
       return
     }
 
     // Validate all fields are filled
     if (!formData.name.trim() || !formData.year || !formData.email.trim() || !formData.college.trim() || !formData.password) {
       setError('Please fill in all fields.')
+      setLoading(false)
       return
     }
     
     if (formData.year === '') {
       setError('Please select your year.')
+      setLoading(false)
       return
     }
 
     try {
+      console.log('Attempting signup...', { email: formData.email.trim() })
       const result = await signup({
         name: formData.name.trim(),
         year: formData.year,
@@ -80,8 +86,11 @@ function Login() {
         password: formData.password
       })
       
+      console.log('Signup response:', result)
+      
       // Signup successful - redirect to verification page
       setError('')
+      setLoading(false)
       // Navigate immediately without alert
       navigate('/verify-email', { 
         state: { 
@@ -90,9 +99,29 @@ function Login() {
         } 
       })
     } catch (err) {
-      const errorMessage = err.response?.data?.error || err.message || 'Signup failed'
+      setLoading(false)
+      console.error('Signup error details:', {
+        message: err.message,
+        response: err.response?.data,
+        status: err.response?.status,
+        config: err.config,
+        stack: err.stack
+      })
+      
+      // Check for network/CORS errors
+      if (!err.response) {
+        if (err.message && err.message.includes('CORS')) {
+          setError('CORS Error: Please check backend CORS configuration. Check browser console for details.')
+        } else if (err.code === 'ERR_NETWORK' || err.message.includes('Network')) {
+          setError('Network error: Could not connect to server. Please check your connection and try again.')
+        } else {
+          setError(`Connection error: ${err.message}. Please check your network connection.`)
+        }
+        return
+      }
+      
+      const errorMessage = err.response?.data?.error || err.response?.data?.message || err.message || 'Signup failed'
       setError(errorMessage)
-      console.error('Signup error:', err.response?.data || err)
     }
   }
 
@@ -209,7 +238,9 @@ function Login() {
                   placeholder="Create a password"
                 />
               </div>
-              <button type="submit" className="btn btn-primary">Sign Up</button>
+              <button type="submit" className="btn btn-primary" disabled={loading}>
+                {loading ? 'Signing Up...' : 'Sign Up'}
+              </button>
             </form>
             <p className="auth-switch">
               Already have an account? <a href="#" onClick={(e) => { e.preventDefault(); setIsSignup(false) }}>Login</a>

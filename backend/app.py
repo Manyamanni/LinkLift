@@ -183,6 +183,14 @@ def send_verification_email(user):
         frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:5173')
         verification_url = f"{frontend_url}/verify-email?token={token}"
         
+        # Check if email configuration is set
+        mail_username = os.getenv('MAIL_USERNAME')
+        mail_password = os.getenv('MAIL_PASSWORD')
+        
+        if not mail_username or not mail_password:
+            print("WARNING: MAIL_USERNAME or MAIL_PASSWORD not set. Email will not be sent.")
+            return False
+        
         msg = Message(
             subject='Verify Your LinkLift Account',
             recipients=[user.email],
@@ -207,9 +215,13 @@ def send_verification_email(user):
             """
         )
         mail.send(msg)
+        print(f"Verification email sent successfully to {user.email}")
         return True
     except Exception as e:
-        print(f"Failed to send verification email: {e}")
+        print(f"Failed to send verification email to {user.email}: {str(e)}")
+        print(f"Error type: {type(e).__name__}")
+        import traceback
+        traceback.print_exc()
         db.session.rollback()
         return False
 
@@ -1097,6 +1109,34 @@ def trigger_sos(ride_id):
         'message': 'EMERGENCY ALERT TRIGGERED! Current location and ride details have been shared with Admin and Emergency Contacts. Stay Safe.',
         'rideId': ride_id
     }), 200
+
+# Admin endpoint to reset database (WARNING: Deletes all data!)
+# Remove this endpoint after use for security
+@app.route('/api/admin/reset-database', methods=['POST'])
+def reset_database():
+    """Reset database - drops all tables and recreates them"""
+    try:
+        # Optional: Add a secret key check for security
+        # secret = request.headers.get('X-Reset-Secret')
+        # if secret != os.getenv('RESET_SECRET', 'change-me-in-production'):
+        #     return jsonify({'error': 'Unauthorized'}), 403
+        
+        with app.app_context():
+            print("Dropping all tables...")
+            db.drop_all()
+            print("Creating new tables...")
+            db.create_all()
+            print("Database reset complete!")
+        
+        return jsonify({
+            'message': 'Database reset successfully. All tables dropped and recreated.',
+            'status': 'success'
+        }), 200
+    except Exception as e:
+        return jsonify({
+            'error': f'Failed to reset database: {str(e)}',
+            'status': 'error'
+        }), 500
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
