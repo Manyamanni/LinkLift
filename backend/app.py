@@ -28,7 +28,9 @@ elif database_url.startswith('postgres://'):
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-CORS(app, origins="http://localhost:5173")  # Vite default port
+# CORS configuration - allow localhost for dev and Vercel domain for production
+allowed_origins = os.getenv('ALLOWED_ORIGINS', 'http://localhost:5173').split(',')
+CORS(app, origins=allowed_origins)
 jwt = JWTManager(app)
 db = SQLAlchemy(app)
 
